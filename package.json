@@ -1,11 +1,12 @@
 {
   "name": "leetcode-notifier",
   "version": "1.0.0",
-  "description": "Notifies you across email, Telegram, SMS, and browser push if you haven't solved a LeetCode problem by your deadline.",
+  "description": "Notifies you across email, Telegram, and browser push if you haven't solved a LeetCode problem by your deadline.",
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc -p tsconfig.json",
+    "postinstall": "npm run build",
     "start": "node dist/index.js",
     "generate-vapid": "web-push generate-vapid-keys"
   },
@@ -15,6 +16,7 @@
     "mongoose": "^9.9.0",
     "node-cron": "^3.0.3",
     "nodemailer": "^6.9.14",
+    "typescript": "^5.5.3",
     "web-push": "^3.6.7"
   },
   "devDependencies": {
@@ -23,7 +25,6 @@
     "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^6.4.15",
     "@types/web-push": "^3.6.3",
-    "ts-node-dev": "^2.0.0",
-    "typescript": "^5.5.3"
+    "ts-node-dev": "^2.0.0"
   }
 }
