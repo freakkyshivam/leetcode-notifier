@@ -30,13 +30,15 @@ export interface IUser extends Document {
   createdAt: string;
   status: DailyStatus;
   pushSubscriptions: PushSubscriptionJSON[];
+  otpCode?: string;
+  otpExpiresAt?: Date;
 }
 
 const UserSchema = new Schema<IUser>({
   id: { type: String, required: true, unique: true, index: true },
   name: { type: String },
   leetcodeUsername: { type: String, required: true, trim: true },
-  email: { type: String, trim: true },
+  email: { type: String, trim: true, index: true },
   telegramChatId: { type: String, trim: true, index: true },
   channels: {
     email: { type: Boolean, default: false },
@@ -61,6 +63,8 @@ const UserSchema = new Schema<IUser>({
       },
     },
   ],
+  otpCode: { type: String },
+  otpExpiresAt: { type: Date },
 });
 
 export const UserModel = mongoose.model<IUser>("User", UserSchema);

@@ -73,13 +73,19 @@ export async function getUserByTelegramChatId(chatId: string): Promise<User | nu
   return toUserAndCheckRollover(doc);
 }
 
+export async function getUserByEmail(email: string): Promise<User | null> {
+  const doc = await UserModel.findOne({ email: email.trim().toLowerCase() });
+  if (!doc) return null;
+  return toUserAndCheckRollover(doc);
+}
+
 export async function createUser(input: NewUserInput): Promise<User> {
   const id = crypto.randomUUID();
   const newUser = new UserModel({
     id,
     name: input.name?.trim() || undefined,
     leetcodeUsername: input.leetcodeUsername.trim(),
-    email: input.email?.trim() || undefined,
+    email: input.email?.trim().toLowerCase() || undefined,
     telegramChatId: input.telegramChatId?.trim() || undefined,
     channels: {
       email: !!input.channels.email,
@@ -95,13 +101,38 @@ export async function createUser(input: NewUserInput): Promise<User> {
   return toUserAndCheckRollover(newUser);
 }
 
+export async function saveOtp(email: string, otpCode: string, expiresAt: Date): Promise<void> {
+  const emailClean = email.trim().toLowerCase();
+  await UserModel.updateOne(
+    { email: emailClean },
+    { $set: { otpCode, otpExpiresAt: expiresAt } }
+  );
+}
+
+export async function verifyOtp(email: string, otpCode: string): Promise<User | null> {
+  const emailClean = email.trim().toLowerCase();
+  const doc = await UserModel.findOne({ email: emailClean });
+  if (!doc || !doc.otpCode || !doc.otpExpiresAt) return null;
+
+  if (doc.otpCode !== otpCode.trim() || new Date() > doc.otpExpiresAt) {
+    return null; // Invalid or expired OTP
+  }
+
+  // Clear OTP after successful verification
+  doc.otpCode = undefined;
+  doc.otpExpiresAt = undefined;
+  await doc.save();
+
+  return toUserAndCheckRollover(doc);
+}
+
 export async function updateUser(id: string, updates: Partial<User>): Promise<User | null> {
   const doc = await UserModel.findOne({ id });
   if (!doc) return null;
 
   if (updates.name !== undefined) doc.name = updates.name.trim() || undefined;
   if (updates.leetcodeUsername !== undefined) doc.leetcodeUsername = updates.leetcodeUsername.trim();
-  if (updates.email !== undefined) doc.email = updates.email.trim() || undefined;
+  if (updates.email !== undefined) doc.email = updates.email.trim().toLowerCase() || undefined;
   if (updates.telegramChatId !== undefined) doc.telegramChatId = updates.telegramChatId.trim() || undefined;
   if (updates.channels) {
     doc.channels = { ...doc.channels, ...updates.channels };

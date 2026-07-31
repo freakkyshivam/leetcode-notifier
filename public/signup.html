@@ -10,45 +10,66 @@
 <div class="wrap">
   <p class="prompt">./signup</p>
   <h1>Sign up</h1>
-  <p class="sub">Your own LeetCode username, your own inbox/chat. Nobody else sees your solve history or contact details.</p>
+  <p class="sub">Your own LeetCode username, verified email, and Telegram chat.</p>
 
-  <form class="panel" id="form">
-    <p class="panel-title">Who you are</p>
+  <!-- STEP 1: Signup Details -->
+  <div id="step1-container">
+    <form class="panel" id="form">
+      <p class="panel-title">Who you are</p>
 
-    <label for="name">Name (optional)</label>
-    <input type="text" id="name" placeholder="Riya" />
+      <label for="name">Name (optional)</label>
+      <input type="text" id="name" placeholder="Alex" />
 
-    <label for="leetcodeUsername">LeetCode username</label>
-    <input type="text" id="leetcodeUsername" placeholder="riya_codes" required />
-    <p class="hint">Must be public. This is what gets checked at the deadlines every day.</p>
-  </form>
+      <label for="leetcodeUsername">LeetCode username</label>
+      <input type="text" id="leetcodeUsername" placeholder="alex_codes" required />
+      <p class="hint">Must be public. This is what gets checked at the deadlines every day.</p>
+    </form>
 
-  <div class="panel">
-    <p class="panel-title">How to notify you</p>
+    <div class="panel">
+      <p class="panel-title">Verification & Notifications</p>
 
-    <div class="channel-row">
-      <input type="checkbox" id="ch-email" />
-      <span class="name">Email</span>
-      <input type="email" id="email" class="field" placeholder="you@example.com" disabled />
+      <div class="channel-row">
+        <span class="name">Email</span>
+        <input type="email" id="email" class="field" placeholder="you@example.com" required />
+      </div>
+
+      <div class="channel-row" style="margin-top: 10px;">
+        <input type="checkbox" id="ch-telegram" />
+        <span class="name">Telegram</span>
+        <input type="text" id="telegramChatId" class="field" placeholder="your chat id" disabled />
+      </div>
+      <p class="hint" id="telegram-hint">Message the bot once or type /start to get set up!</p>
+
+      <div class="channel-row">
+        <input type="checkbox" id="ch-push" />
+        <span class="name">Browser push</span>
+        <span class="hint" style="margin:0;">enabled from your dashboard after signup, per device</span>
+      </div>
     </div>
 
-    <div class="channel-row">
-      <input type="checkbox" id="ch-telegram" />
-      <span class="name">Telegram</span>
-      <input type="text" id="telegramChatId" class="field" placeholder="your chat id" disabled />
-    </div>
-    <p class="hint" id="telegram-hint">Message the bot once or type /start to get set up!</p>
-
-    <div class="channel-row">
-      <input type="checkbox" id="ch-push" />
-      <span class="name">Browser push</span>
-      <span class="hint" style="margin:0;">enabled from your dashboard after signup, per device</span>
+    <div class="panel">
+      <button type="submit" form="form" id="btn-submit">Send Verification OTP Code →</button>
     </div>
   </div>
 
-  <div class="panel">
-    <button type="submit" form="form" id="btn-submit">Create my reminder</button>
-    <div class="log" id="log"></div>
+  <!-- STEP 2: OTP Verification -->
+  <div class="panel" id="step2-container" style="display: none;">
+    <p class="panel-title">Verify Email & Complete Registration</p>
+    <p class="hint" style="margin-bottom: 12px; color: var(--ok);">We've sent a 6-digit OTP code to <span id="sent-email-display" style="font-weight:bold;"></span></p>
+
+    <label for="otpCode">6-Digit OTP Code</label>
+    <input type="text" id="otpCode" placeholder="123456" maxlength="6" style="letter-spacing: 0.3em; font-size: 18px; font-weight: bold; width: 200px;" />
+
+    <div style="margin-top: 16px;">
+      <button id="btn-verify-otp">Verify OTP & Finish Signup →</button>
+      <button id="btn-back" style="border-color: var(--line); color: var(--dim);">Back</button>
+    </div>
+  </div>
+
+  <div class="log" id="log"></div>
+
+  <div style="margin-top: 24px; font-size: 12px; color: var(--dim);">
+    Already registered? <a href="/login.html">Log in here</a>
   </div>
 </div>
 
@@ -60,18 +81,13 @@
     el.className = "log" + (cls ? " " + cls : "");
   };
 
-  // Toggle each destination field alongside its checkbox.
-  [
-    ["ch-email", "email"],
-    ["ch-telegram", "telegramChatId"],
-  ].forEach(([checkboxId, fieldId]) => {
-    const checkbox = $(checkboxId);
-    const field = $(fieldId);
-    checkbox.addEventListener("change", () => {
-      field.disabled = !checkbox.checked;
-      field.required = checkbox.checked;
-      if (!checkbox.checked) field.value = "";
-    });
+  let signupPayload = null;
+
+  // Toggle Telegram chat ID field
+  $("ch-telegram").addEventListener("change", () => {
+    $("telegramChatId").disabled = !$("ch-telegram").checked;
+    $("telegramChatId").required = $("ch-telegram").checked;
+    if (!$("ch-telegram").checked) $("telegramChatId").value = "";
   });
 
   fetch("/api/config")
@@ -87,37 +103,77 @@
 
   $("form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    $("btn-submit").disabled = true;
-    log("Creating your reminder…");
 
-    const payload = {
+    signupPayload = {
       name: $("name").value.trim() || undefined,
       leetcodeUsername: $("leetcodeUsername").value.trim(),
-      email: $("ch-email").checked ? $("email").value.trim() : undefined,
+      email: $("email").value.trim().toLowerCase(),
       telegramChatId: $("ch-telegram").checked ? $("telegramChatId").value.trim() : undefined,
       channels: {
-        email: $("ch-email").checked,
+        email: true,
         telegram: $("ch-telegram").checked,
         push: $("ch-push").checked,
       },
     };
 
+    if (!signupPayload.email || !signupPayload.email.includes("@")) {
+      return log("Please enter a valid email address.", "err");
+    }
+
+    $("btn-submit").disabled = true;
+    log("Sending 6-digit verification OTP code to your email…");
+
     try {
-      const res = await fetch("/api/signup", {
+      const res = await fetch("/api/auth/send-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...signupPayload, mode: "signup" }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Signup failed");
+      if (!res.ok) throw new Error(data.error || "Failed to send OTP");
 
-      localStorage.setItem("leetcode-notifier-user-id", data.id);
-      log("Done — taking you to your dashboard…", "good");
-      window.location.href = data.dashboardUrl;
+      $("sent-email-display").textContent = signupPayload.email;
+      $("step1-container").style.display = "none";
+      $("step2-container").style.display = "block";
+      log("OTP code sent to your email! Please check your inbox.", "good");
     } catch (err) {
       log(err.message, "err");
       $("btn-submit").disabled = false;
     }
+  });
+
+  $("btn-verify-otp").addEventListener("click", async () => {
+    const otpCode = $("otpCode").value.trim();
+    if (!otpCode || otpCode.length !== 6) {
+      return log("Please enter a 6-digit numeric OTP code.", "err");
+    }
+
+    $("btn-verify-otp").disabled = true;
+    log("Verifying code and completing signup…");
+
+    try {
+      const res = await fetch("/api/auth/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: signupPayload.email, otpCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Verification failed");
+
+      localStorage.setItem("leetcode-notifier-user-id", data.user.id);
+      log("Registration complete! Taking you to your dashboard…", "good");
+      window.location.href = data.dashboardUrl;
+    } catch (err) {
+      log(err.message, "err");
+      $("btn-verify-otp").disabled = false;
+    }
+  });
+
+  $("btn-back").addEventListener("click", () => {
+    $("step2-container").style.display = "none";
+    $("step1-container").style.display = "block";
+    $("btn-submit").disabled = false;
+    log("");
   });
 </script>
 </body>

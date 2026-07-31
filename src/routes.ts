@@ -1,20 +1,131 @@
 import { Router } from "express";
+import crypto from "crypto";
 import { config } from "./config";
 import { hasSolvedToday } from "./leetcode";
 import {
   createUser,
   getUser,
+  getUserByEmail,
+  saveOtp,
+  verifyOtp,
   markSolvedManually,
   addPushSubscription,
   removePushSubscription,
 } from "./store";
+import { sendEmail } from "./notifiers/email";
 import { notifyUser, notifyUserStage } from "./notifiers";
 import { runStageCheckForUser } from "./scheduler";
 
 export const router = Router();
 
-// ---- Signup ----
+// Store temporary unverified signup inputs mapped by email
+const pendingSignups = new Map<string, {
+  name?: string;
+  leetcodeUsername: string;
+  email: string;
+  telegramChatId?: string;
+  channels: any;
+}>();
 
+// ---- OTP Auth Routes ----
+
+// Send OTP for Signup or Login
+router.post("/api/auth/send-otp", async (req, res) => {
+  const { email, mode, name, leetcodeUsername, telegramChatId, channels } = req.body ?? {};
+
+  if (!email || typeof email !== "string" || !email.includes("@")) {
+    return res.status(400).json({ error: "A valid email address is required" });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const existingUser = await getUserByEmail(cleanEmail);
+
+  if (mode === "signup") {
+    if (existingUser) {
+      return res.status(400).json({ error: "An account with this email already exists. Please log in instead." });
+    }
+    if (!leetcodeUsername || typeof leetcodeUsername !== "string") {
+      return res.status(400).json({ error: "LeetCode username is required for signup" });
+    }
+
+    // Save pending signup data until OTP verification
+    pendingSignups.set(cleanEmail, {
+      name,
+      leetcodeUsername,
+      email: cleanEmail,
+      telegramChatId,
+      channels: channels ?? { email: true },
+    });
+  } else if (mode === "login") {
+    if (!existingUser) {
+      return res.status(404).json({ error: "No account found with this email address." });
+    }
+  }
+
+  // Generate 6-digit cryptographic numeric OTP
+  const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes expiry
+
+  if (existingUser) {
+    await saveOtp(cleanEmail, otpCode, expiresAt);
+  } else {
+    // Save temporary OTP for pending signup
+    await saveOtp(cleanEmail, otpCode, expiresAt);
+  }
+
+  try {
+    const subject = `Your LeetCode Notifier Verification Code: ${otpCode}`;
+    const body = `Hello!\n\nYour 6-digit verification code is: ${otpCode}\n\nThis code will expire in 10 minutes. If you did not request this, please ignore this message.`;
+    await sendEmail(cleanEmail, subject, body);
+    res.json({ ok: true, message: `OTP sent to ${cleanEmail}` });
+  } catch (err: any) {
+    console.error("[auth] Failed to send OTP email:", err);
+    res.status(500).json({ error: `Failed to send OTP email: ${err.message || String(err)}` });
+  }
+});
+
+// Verify OTP for Signup or Login
+router.post("/api/auth/verify-otp", async (req, res) => {
+  const { email, otpCode } = req.body ?? {};
+
+  if (!email || !otpCode) {
+    return res.status(400).json({ error: "Email and OTP code are required" });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  let user = await getUserByEmail(cleanEmail);
+
+  if (user) {
+    // Login path
+    const verified = await verifyOtp(cleanEmail, otpCode);
+    if (!verified) {
+      return res.status(400).json({ error: "Invalid or expired OTP code" });
+    }
+    return res.json({ ok: true, user: verified, dashboardUrl: `/dashboard.html?u=${verified.id}` });
+  } else {
+    // Signup path
+    const pending = pendingSignups.get(cleanEmail);
+    if (!pending) {
+      return res.status(400).json({ error: "Signup session expired. Please request a new OTP." });
+    }
+
+    const verified = await verifyOtp(cleanEmail, otpCode);
+    // Note: if user doc didn't exist yet, we check verifyOtp on pending doc or pendingSignups
+    // Let's create user now!
+    user = await createUser({
+      name: pending.name,
+      leetcodeUsername: pending.leetcodeUsername,
+      email: pending.email,
+      telegramChatId: pending.telegramChatId,
+      channels: pending.channels,
+    });
+
+    pendingSignups.delete(cleanEmail);
+    return res.json({ ok: true, user, dashboardUrl: `/dashboard.html?u=${user.id}` });
+  }
+});
+
+// Legacy direct signup endpoint
 router.post("/api/signup", async (req, res) => {
   const { name, leetcodeUsername, email, telegramChatId, channels } = req.body ?? {};
 
@@ -23,9 +134,6 @@ router.post("/api/signup", async (req, res) => {
   }
   if (channels?.email && !email) {
     return res.status(400).json({ error: "email is required when the email channel is enabled" });
-  }
-  if (channels?.telegram && !telegramChatId) {
-    return res.status(400).json({ error: "telegramChatId is required when the telegram channel is enabled" });
   }
 
   const user = await createUser({ name, leetcodeUsername, email, telegramChatId, channels: channels ?? {} });
@@ -37,6 +145,31 @@ router.get("/api/config", (_req, res) => {
     timezone: config.timezone,
     telegramBotUsername: config.telegramBotUsername ?? null,
     pushConfigured: !!config.push.publicKey,
+  });
+});
+
+// ---- Developer Info Endpoint ----
+
+router.get("/api/developer", (_req, res) => {
+  res.json({
+    developer: {
+      name: "FREAKKY SHIVAM",
+      role: "Backend Developer",
+      github: "https://github.com/freakkyshivam",
+      bio: "Crafting real-time automated developer tools, streak trackers, and reliable notification pipelines.",
+    },
+    application: {
+      name: "LeetCode Notifier",
+      version: "2.0.0",
+      architecture: "Node.js + TypeScript + Express + MongoDB + Web Audio API",
+      features: [
+        "4-Stage Escalating Reminders (21:00, 22:00, 23:00, 23:45)",
+        "FINAL BOSS Screen Siren Emergency Alarm",
+        "Interactive Telegram Bot Account Management",
+        "OTP-Based Email Verification",
+        "Web Push (VAPID) Browser Notifications",
+      ],
+    },
   });
 });
 

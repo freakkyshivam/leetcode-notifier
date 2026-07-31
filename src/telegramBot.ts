@@ -153,6 +153,21 @@ async function handleChannelsCommand(chatIdStr: string): Promise<void> {
   await sendTelegramMessage(chatIdStr, text, replyMarkup);
 }
 
+async function handleDeveloperCommand(chatIdStr: string): Promise<void> {
+  const text = `👨‍💻 **Developer Details & System Info**\n\n` +
+    `• Developer: FREAKKY SHIVAM\n` +
+    `• Role: Backend Developer\n` +
+    `• GitHub: https://github.com/freakkyshivam\n` +
+    `• Repo: https://github.com/freakkyshivam/leetcode-notifier\n\n` +
+    `🚀 **System Architecture**:\n` +
+    `• Node.js, TypeScript, Express, MongoDB (Mongoose)\n` +
+    `• 4-Stage Escalation Reminders (21:00, 22:00, 23:00, 23:45)\n` +
+    `• FINAL BOSS Web Audio Siren Emergency Alarm\n` +
+    `• OTP-Based 6-Digit Email Verification`;
+
+  await sendTelegramMessage(chatIdStr, text);
+}
+
 async function handleHelpCommand(chatIdStr: string): Promise<void> {
   const text = `🤖 **LeetCode Notifier Bot Commands**\n\n` +
     `/start - Register or restart session\n` +
@@ -160,6 +175,7 @@ async function handleHelpCommand(chatIdStr: string): Promise<void> {
     `/done - Mark today's goal manually done\n` +
     `/edit - Update username, name, or email\n` +
     `/channels - Toggle notification channels\n` +
+    `/developer - Developer & system info\n` +
     `/help - View this message`;
 
   await sendTelegramMessage(chatIdStr, text);
@@ -175,6 +191,7 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
   if (trimmed === "/done") return handleDoneCommand(chatIdStr);
   if (trimmed === "/edit") return handleEditCommand(chatIdStr);
   if (trimmed === "/channels") return handleChannelsCommand(chatIdStr);
+  if (trimmed === "/developer" || trimmed === "/dev") return handleDeveloperCommand(chatIdStr);
   if (trimmed === "/help") return handleHelpCommand(chatIdStr);
 
   // Check active stateful session

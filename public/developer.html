@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>developer — leetcode-notifier</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<div class="wrap">
+  <p class="prompt">cat /developer/info.json</p>
+  <h1>Developer Profile & System Info</h1>
+  <p class="sub">Architectural insights and developer details behind LeetCode Notifier.</p>
+
+  <div class="panel">
+    <p class="panel-title">Developer Details</p>
+    <div class="status-line"><span class="k">developer</span><span class="v" id="dev-name">FREAKKY SHIVAM</span></div>
+    <div class="status-line"><span class="k">role</span><span class="v" id="dev-role">Backend Developer</span></div>
+    <div class="status-line"><span class="k">github</span><span class="v"><a href="https://github.com/freakkyshivam" target="_blank" id="dev-github">github.com/freakkyshivam</a></span></div>
+    <div class="status-line"><span class="k">project repo</span><span class="v"><a href="https://github.com/freakkyshivam/leetcode-notifier" target="_blank">leetcode-notifier</a></span></div>
+  </div>
+
+  <div class="panel">
+    <p class="panel-title">System Architecture & Features</p>
+    <div class="status-line"><span class="k">app name</span><span class="v">LeetCode Notifier v2.0.0</span></div>
+    <div class="status-line"><span class="k">core tech</span><span class="v">Node.js, TypeScript, Express, MongoDB (Mongoose)</span></div>
+    <div class="status-line"><span class="k">real-time alarm</span><span class="v">Web Audio API Emergency Siren Synth</span></div>
+    <div class="status-line"><span class="k">bot platform</span><span class="v">Telegram Bot API (Long-Polling & Conversational Flow)</span></div>
+    <div class="status-line"><span class="k">email dispatch</span><span class="v">Transactional SMTP via Brevo API</span></div>
+    <div class="status-line"><span class="k">auth pipeline</span><span class="v">OTP 6-Digit Email Verification</span></div>
+  </div>
+
+  <div class="panel">
+    <p class="panel-title">4-Stage Escalation Matrix</p>
+    <div class="status-line"><span class="k">Stage 1 (21:00)</span><span class="v">Push Warning ("Streak danger ⚠️")</span></div>
+    <div class="status-line"><span class="k">Stage 2 (22:00)</span><span class="v">Telegram + Email ("⏰ 2 hours left")</span></div>
+    <div class="status-line"><span class="k">Stage 3 (23:00)</span><span class="v">Push + Telegram + Email ("🔥 60 mins left")</span></div>
+    <div class="status-line"><span class="k">Stage 4 (23:45)</span><span class="v" style="color: var(--bad);">FINAL BOSS 🚨 Screen Siren + All Channels</span></div>
+  </div>
+
+  <div style="margin-top: 20px;">
+    <a href="/index.html" class="btnlink">← Back to Home</a>
+    <a href="/signup.html" class="btnlink">Sign up →</a>
+  </div>
+</div>
+
+<script>
+  fetch("/api/developer")
+    .then((r) => r.json())
+    .then((data) => {
+      if (data.developer) {
+        if (data.developer.name) document.getElementById("dev-name").textContent = data.developer.name;
+        if (data.developer.role) document.getElementById("dev-role").textContent = data.developer.role;
+      }
+    })
+    .catch(() => {});
+</script>
+</body>
+</html>
