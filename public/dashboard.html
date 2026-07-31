@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>dashboard — leetcode-notifier</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<div class="wrap">
+  <p class="prompt">tail -f leetcode-notifier <span id="who"></span></p>
+  <h1>Your dashboard</h1>
+  <p class="sub" id="missing-id" style="display:none;">No account id found. <a href="/signup.html">Sign up</a> first, or open the link your signup gave you.</p>
+
+  <div id="content" style="display:none;">
+    <div class="panel">
+      <p class="panel-title">Today's Progress & Escalation Stages</p>
+      <div class="status-line"><span class="k">leetcode user</span><span class="v" id="s-user">—</span></div>
+      <div class="status-line"><span class="k">date</span><span class="v" id="s-date">—</span></div>
+      <div class="status-line"><span class="k">leetcode ac today</span><span class="v" id="s-leetcode"><span class="pill unknown">checking…</span></span></div>
+      <div class="status-line"><span class="k">manual override</span><span class="v" id="s-manual"><span class="pill unknown">checking…</span></span></div>
+      <div class="status-line"><span class="k">channels on</span><span class="v" id="s-channels">—</span></div>
+      <hr style="border:0; border-top: 1px solid var(--line); margin: 12px 0;" />
+      <div class="status-line"><span class="k">Stage 1 (21:00 Push)</span><span class="v" id="s-stage1">—</span></div>
+      <div class="status-line"><span class="k">Stage 2 (22:00 Tele/Mail)</span><span class="v" id="s-stage2">—</span></div>
+      <div class="status-line"><span class="k">Stage 3 (23:00 Urgent)</span><span class="v" id="s-stage3">—</span></div>
+      <div class="status-line"><span class="k">Stage 4 (23:45 FINAL BOSS)</span><span class="v" id="s-stage4">—</span></div>
+    </div>
+
+    <div class="panel">
+      <p class="panel-title">Actions & Stage Testing</p>
+      <button id="btn-refresh">Refresh status</button>
+      <button id="btn-mark-done">Mark today done manually</button>
+      <button id="btn-enable-push">Enable browser notifications</button>
+      
+      <div style="margin-top: 12px; margin-bottom: 6px; font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em;">Test Individual Notification Stages:</div>
+      <button id="btn-test-stage1">Test Stage 1 (Push)</button>
+      <button id="btn-test-stage2">Test Stage 2 (Telegram/Email)</button>
+      <button id="btn-test-stage3">Test Stage 3 (Urgent All)</button>
+      <button id="btn-test-stage4" style="border-color: var(--bad); color: var(--bad);">Test Stage 4 (FINAL BOSS 🚨)</button>
+      <button id="btn-test-finalboss" style="border-color: var(--bad); color: #ff3b56; margin-top: 8px;">Simulate Screen Siren 🚨</button>
+      
+      <div class="log" id="log"></div>
+    </div>
+
+    <p class="sub">Bookmark this page — it's your personal dashboard link, keep it private.</p>
+  </div>
+</div>
+
+<!-- FINAL BOSS OVERLAY -->
+<div id="final-boss-overlay" class="final-boss-modal" style="display: none;">
+  <div class="final-boss-box">
+    <div class="final-boss-icon">🚨</div>
+    <h2 class="final-boss-title">FINAL BOSS ACTIVE!</h2>
+    <p class="final-boss-subtitle">15 MINUTES REMAINING BEFORE DAY RESETS!</p>
+    <p class="final-boss-desc">You have NOT submitted an accepted LeetCode solution today. Go solve one problem immediately before your streak breaks!</p>
+    <div class="final-boss-actions">
+      <a href="https://leetcode.com/problemset/all/" target="_blank" class="final-boss-btn primary">Solve Problem Now 🚀</a>
+      <button id="btn-dismiss-boss" class="final-boss-btn secondary">Silence Alarm & Dismiss</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+  let userId = params.get("u") || localStorage.getItem("leetcode-notifier-user-id");
+  let bossAlarmInterval = null;
+  let audioCtx = null;
+
+  if (!userId) {
+    $("missing-id").style.display = "block";
+  } else {
+    localStorage.setItem("leetcode-notifier-user-id", userId);
+    $("content").style.display = "block";
+    init();
+  }
+
+  function log(msg, cls) {
+    const el = $("log");
+    const span = document.createElement("div");
+    if (cls) span.className = cls;
+    span.textContent = msg;
+    el.prepend(span);
+  }
+
+  function pill(state, textOk, textBad, textUnknown) {
+    if (state === null) return '<span class="pill unknown">' + textUnknown + "</span>";
+    return state ? '<span class="pill ok">' + textOk + "</span>" : '<span class="pill bad">' + textBad + "</span>";
+  }
+
+  function stagePill(sent) {
+    return sent ? '<span class="pill warn">sent ⚡</span>' : '<span class="pill unknown">pending</span>';
+  }
+
+  // Web Audio API Emergency Alarm Synthesizer
+  function startAlarmSound() {
+    if (bossAlarmInterval) return;
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch (e) {
+      return;
+    }
+
+    let high = true;
+    function playBeep() {
+      if (!audioCtx) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(high ? 880 : 587.33, audioCtx.currentTime); // A5 and D5 alternate
+      high = !high;
+
+      gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.35);
+    }
+
+    playBeep();
+    bossAlarmInterval = setInterval(playBeep, 400);
+  }
+
+  function stopAlarmSound() {
+    if (bossAlarmInterval) {
+      clearInterval(bossAlarmInterval);
+      bossAlarmInterval = null;
+    }
+    if (audioCtx) {
+      audioCtx.close().catch(() => {});
+      audioCtx = null;
+    }
+  }
+
+  function triggerFinalBossAlert() {
+    $("final-boss-overlay").style.display = "flex";
+    startAlarmSound();
+  }
+
+  function dismissFinalBossAlert() {
+    $("final-boss-overlay").style.display = "none";
+    stopAlarmSound();
+  }
+
+  async function loadStatus() {
+    try {
+      const res = await fetch("/api/users/" + userId + "/status");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load status");
+
+      $("who").textContent = data.name ? "(" + data.name + ")" : "";
+      $("s-user").textContent = data.leetcodeUsername;
+      $("s-date").textContent = data.date;
+      $("s-leetcode").innerHTML = pill(data.solvedOnLeetcode, "solved", "not yet", "checking...");
+      $("s-manual").innerHTML = pill(data.manuallyMarkedDone, "marked done", "not set", "unknown");
+
+      $("s-stage1").innerHTML = stagePill(data.stage1Sent);
+      $("s-stage2").innerHTML = stagePill(data.stage2Sent);
+      $("s-stage3").innerHTML = stagePill(data.stage3Sent);
+      $("s-stage4").innerHTML = data.stage4Sent
+        ? '<span class="pill bad">FINAL BOSS TRIGGERED 🚨</span>'
+        : '<span class="pill unknown">pending</span>';
+
+      const on = Object.entries(data.channels)
+        .filter(([, v]) => v)
+        .map(([k]) => k);
+      $("s-channels").textContent = on.length ? on.join(", ") : "none";
+
+      // Trigger FINAL BOSS alert if stage 4 was sent and user hasn't solved yet
+      if (data.stage4Sent && !data.effectivelyDone) {
+        triggerFinalBossAlert();
+      } else if (data.effectivelyDone) {
+        dismissFinalBossAlert();
+      }
+    } catch (err) {
+      log("Failed to load status: " + err.message, "err");
+    }
+  }
+
+  function urlBase64ToUint8Array(base64String) {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const rawData = atob(base64);
+    return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+  }
+
+  async function testStage(stageNum) {
+    try {
+      log("Triggering Stage " + stageNum + " test notification...", "");
+      const res = await fetch("/api/users/" + userId + "/test-stage/" + stageNum + "?force=true", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      if (!data.results || data.results.length === 0) {
+        log("Stage " + stageNum + " test ran, but no matching channels enabled for this stage.", "warn");
+      } else {
+        data.results.forEach(function (r) {
+          if (r.ok) log("✓ Stage " + stageNum + " [" + r.channel + "] sent successfully", "good");
+          else log("✗ Stage " + stageNum + " [" + r.channel + "] failed: " + r.error, "err");
+        });
+      }
+      loadStatus();
+    } catch (err) {
+      log("Stage " + stageNum + " test failed: " + err.message, "err");
+    }
+  }
+
+  function init() {
+    loadStatus();
+
+    // Auto-poll status every 30 seconds
+    setInterval(loadStatus, 30000);
+
+    $("btn-refresh").addEventListener("click", loadStatus);
+    $("btn-dismiss-boss").addEventListener("click", dismissFinalBossAlert);
+
+    $("btn-test-finalboss").addEventListener("click", () => {
+      triggerFinalBossAlert();
+    });
+
+    $("btn-test-stage1").addEventListener("click", () => testStage(1));
+    $("btn-test-stage2").addEventListener("click", () => testStage(2));
+    $("btn-test-stage3").addEventListener("click", () => testStage(3));
+    $("btn-test-stage4").addEventListener("click", () => {
+      triggerFinalBossAlert();
+      testStage(4);
+    });
+
+    $("btn-mark-done").addEventListener("click", async () => {
+      try {
+        const res = await fetch("/api/users/" + userId + "/mark-done", { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        log("Marked today as done.", "good");
+        dismissFinalBossAlert();
+        loadStatus();
+      } catch (err) {
+        log("Failed to mark done: " + err.message, "err");
+      }
+    });
+
+    $("btn-enable-push").addEventListener("click", async () => {
+      try {
+        if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+          throw new Error("This browser doesn't support push notifications");
+        }
+        const perm = await Notification.requestPermission();
+        if (perm !== "granted") throw new Error("Notification permission denied");
+
+        const reg = await navigator.serviceWorker.register("/sw.js");
+        const keyRes = await fetch("/api/push/public-key");
+        const keyData = await keyRes.json();
+        if (!keyRes.ok) throw new Error(keyData.error || "No VAPID key configured on server");
+
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(keyData.publicKey),
+        });
+
+        const subRes = await fetch("/api/users/" + userId + "/push/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(sub.toJSON()),
+        });
+        if (!subRes.ok) throw new Error("Server rejected subscription");
+
+        log("Browser notifications enabled on this device.", "good");
+      } catch (err) {
+        log("Failed to enable push: " + err.message, "err");
+      }
+    });
+  }
+</script>
+</body>
+</html>

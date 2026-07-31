@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>leetcode-notifier</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="wrap">
+  <p class="prompt">tail -f leetcode-notifier</p>
+  <h1>Daily deadline monitor</h1>
+  <p class="sub">Checks LeetCode at the deadline every day. If nothing's been solved, it notifies you across whichever channels you enable.</p>
+
+  <div class="panel">
+    <p class="panel-title">Get started</p>
+    <p style="margin: 0 0 14px; color: var(--dim);">Sign up with your own LeetCode username and contact details — nobody shares credentials, everyone gets their own reminders.</p>
+    <a id="go-dashboard" class="btnlink" href="#" style="display:none;">Go to your dashboard →</a>
+    <a class="btnlink" href="signup.html">Sign up →</a>
+  </div>
+</div>
+<script>
+  const saved = localStorage.getItem("leetcode-notifier-user-id");
+  if (saved) {
+    const link = document.getElementById("go-dashboard");
+    link.href = "/dashboard.html?u=" + saved;
+    link.style.display = "inline-block";
+  }
+</script>
+</body>
+</html>

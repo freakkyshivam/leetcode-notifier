@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>sign up — leetcode-notifier</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<div class="wrap">
+  <p class="prompt">./signup</p>
+  <h1>Sign up</h1>
+  <p class="sub">Your own LeetCode username, your own inbox/chat. Nobody else sees your solve history or contact details.</p>
+
+  <form class="panel" id="form">
+    <p class="panel-title">Who you are</p>
+
+    <label for="name">Name (optional)</label>
+    <input type="text" id="name" placeholder="Riya" />
+
+    <label for="leetcodeUsername">LeetCode username</label>
+    <input type="text" id="leetcodeUsername" placeholder="riya_codes" required />
+    <p class="hint">Must be public. This is what gets checked at the deadlines every day.</p>
+  </form>
+
+  <div class="panel">
+    <p class="panel-title">How to notify you</p>
+
+    <div class="channel-row">
+      <input type="checkbox" id="ch-email" />
+      <span class="name">Email</span>
+      <input type="email" id="email" class="field" placeholder="you@example.com" disabled />
+    </div>
+
+    <div class="channel-row">
+      <input type="checkbox" id="ch-telegram" />
+      <span class="name">Telegram</span>
+      <input type="text" id="telegramChatId" class="field" placeholder="your chat id" disabled />
+    </div>
+    <p class="hint" id="telegram-hint">Message the bot once or type /start to get set up!</p>
+
+    <div class="channel-row">
+      <input type="checkbox" id="ch-push" />
+      <span class="name">Browser push</span>
+      <span class="hint" style="margin:0;">enabled from your dashboard after signup, per device</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <button type="submit" form="form" id="btn-submit">Create my reminder</button>
+    <div class="log" id="log"></div>
+  </div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const log = (msg, cls) => {
+    const el = $("log");
+    el.textContent = msg;
+    el.className = "log" + (cls ? " " + cls : "");
+  };
+
+  // Toggle each destination field alongside its checkbox.
+  [
+    ["ch-email", "email"],
+    ["ch-telegram", "telegramChatId"],
+  ].forEach(([checkboxId, fieldId]) => {
+    const checkbox = $(checkboxId);
+    const field = $(fieldId);
+    checkbox.addEventListener("change", () => {
+      field.disabled = !checkbox.checked;
+      field.required = checkbox.checked;
+      if (!checkbox.checked) field.value = "";
+    });
+  });
+
+  fetch("/api/config")
+    .then((r) => r.json())
+    .then((cfg) => {
+      if (cfg.telegramBotUsername) {
+        $("telegram-hint").innerHTML =
+          'Message <a href="https://t.me/' + cfg.telegramBotUsername + '" target="_blank">@' + cfg.telegramBotUsername +
+          "</a> once or send /start to sign up directly in Telegram!";
+      }
+    })
+    .catch(() => {});
+
+  $("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("btn-submit").disabled = true;
+    log("Creating your reminder…");
+
+    const payload = {
+      name: $("name").value.trim() || undefined,
+      leetcodeUsername: $("leetcodeUsername").value.trim(),
+      email: $("ch-email").checked ? $("email").value.trim() : undefined,
+      telegramChatId: $("ch-telegram").checked ? $("telegramChatId").value.trim() : undefined,
+      channels: {
+        email: $("ch-email").checked,
+        telegram: $("ch-telegram").checked,
+        push: $("ch-push").checked,
+      },
+    };
+
+    try {
+      const res = await fetch("/api/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Signup failed");
+
+      localStorage.setItem("leetcode-notifier-user-id", data.id);
+      log("Done — taking you to your dashboard…", "good");
+      window.location.href = data.dashboardUrl;
+    } catch (err) {
+      log(err.message, "err");
+      $("btn-submit").disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

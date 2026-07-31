@@ -1,0 +1,32 @@
+[
+  {
+    "id": "4bdf1dda-7c8c-497a-805e-658c6963a04a",
+    "name": "Shivam Chaudhary",
+    "leetcodeUsername": "freakkyshivam",
+    "email": "skc722768@gmail.com",
+    "phone": "+919219576699",
+    "telegramChatId": "5156115068",
+    "channels": {
+      "email": true,
+      "telegram": true,
+      "call": true,
+      "push": true
+    },
+    "createdAt": "2026-07-31T09:49:04.353Z",
+    "status": {
+      "date": "2026-07-31",
+      "manuallyMarkedDone": false,
+      "notifiedToday": false
+    },
+    "pushSubscriptions": [
+      {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/e6GWsi7t9Ng:APA91bFkiqhUa87qoKfR8Ty7gRZWmWDBDyXt6jWgSNFom4hJr4jNHjtb3J_uczlrQL5lt_udDWtIDsFHpRh3CTxARcaDEMNKduroZdaQXHJ7rkl2HrKVrb1JJKP-7g3A3s73z4Hd5KRm",
+        "expirationTime": null,
+        "keys": {
+          "p256dh": "BCQQQ3P4ZRJpKoQM7nK9KAOi-2vOSuapJuVl1o45fyUp7-u4tH5gp2YiexhWZ_rTZenwwCFmhHuQpbFDo-kmZqk",
+          "auth": "8AzTZqiwTrHYIEED-RGn2w"
+        }
+      }
+    ]
+  }
+]
