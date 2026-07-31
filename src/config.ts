@@ -12,8 +12,9 @@ export const config = {
 
   timezone: process.env.TIMEZONE ?? "Asia/Kolkata",
 
-  // ---- Shared service-level SMTP credentials (e.g. Brevo SMTP) ----
+  // ---- Email credentials (supports both Brevo API Key and SMTP) ----
   email: {
+    brevoApiKey: optional("BREVO_API_KEY"),
     host: optional("SMTP_HOST") ?? "smtp-relay.brevo.com",
     port: Number(process.env.SMTP_PORT ?? 587),
     user: optional("SMTP_USER"),
