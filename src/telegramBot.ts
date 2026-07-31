@@ -1,7 +1,7 @@
 import { config } from "./config";
-import { sendRawTelegram } from "./notifiers/telegram";
 import { getUserByTelegramChatId, createUser, updateUser, markSolvedManually, User } from "./store";
 import { hasSolvedToday } from "./leetcode";
+import { sendEmail } from "./notifiers/email";
 
 interface TelegramUpdate {
   update_id: number;
@@ -18,14 +18,29 @@ interface TelegramUpdate {
   };
 }
 
-// Conversation states for signup and editing
+// Conversation states for signup and editing with OTP verification
 type SessionState =
   | { type: "SIGNUP_WAITING_LEETCODE" }
   | { type: "SIGNUP_WAITING_NAME"; leetcodeUsername: string }
   | { type: "SIGNUP_WAITING_EMAIL"; leetcodeUsername: string; name?: string }
+  | {
+      type: "SIGNUP_WAITING_OTP";
+      leetcodeUsername: string;
+      name?: string;
+      email: string;
+      otpCode: string;
+      expiresAt: number;
+    }
   | { type: "EDIT_WAITING_LEETCODE"; userId: string }
   | { type: "EDIT_WAITING_NAME"; userId: string }
-  | { type: "EDIT_WAITING_EMAIL"; userId: string };
+  | { type: "EDIT_WAITING_EMAIL"; userId: string }
+  | {
+      type: "EDIT_WAITING_EMAIL_OTP";
+      userId: string;
+      newEmail: string;
+      otpCode: string;
+      expiresAt: number;
+    };
 
 const userSessions = new Map<string, SessionState>();
 let offset = 0;
@@ -39,7 +54,7 @@ async function sendTelegramMessage(chatId: string | number, text: string, replyM
   await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text, reply_markup: replyMarkup }),
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: "Markdown", reply_markup: replyMarkup }),
   });
 }
 
@@ -55,10 +70,14 @@ async function answerCallbackQuery(callbackQueryId: string, text?: string): Prom
   });
 }
 
+function generateOtp(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
 async function handleStartCommand(chatIdStr: string): Promise<void> {
   const user = await getUserByTelegramChatId(chatIdStr);
   if (user) {
-    const text = `Welcome back ${user.name || user.leetcodeUsername}! 👋\n\nYour account is linked with LeetCode handle: *${user.leetcodeUsername}*\n\nAvailable commands:\n/status - Check today's progress\n/done - Mark today solved manually\n/edit - Update your profile\n/channels - Manage notification channels\n/help - View help`;
+    const text = `Welcome back ${user.name || user.leetcodeUsername}! 👋\n\nYour account is linked with LeetCode handle: *${user.leetcodeUsername}*\n\nAvailable commands:\n/status - Check today's progress\n/done - Mark today solved manually\n/edit - Update your profile\n/channels - Manage notification channels\n/developer - Developer info\n/help - View help`;
     await sendTelegramMessage(chatIdStr, text);
   } else {
     userSessions.set(chatIdStr, { type: "SIGNUP_WAITING_LEETCODE" });
@@ -120,7 +139,7 @@ async function handleEditCommand(chatIdStr: string): Promise<void> {
         { text: "✏️ LeetCode Username", callback_data: "edit_leetcode" },
         { text: "✏️ Name", callback_data: "edit_name" },
       ],
-      [{ text: "✏️ Email", callback_data: "edit_email" }],
+      [{ text: "✏️ Email (OTP Verified)", callback_data: "edit_email" }],
     ],
   };
 
@@ -197,7 +216,6 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
   // Check active stateful session
   const session = userSessions.get(chatIdStr);
   if (!session) {
-    // Default reply if no session active and text wasn't a command
     await sendTelegramMessage(chatIdStr, `Your Telegram Chat ID is: \`${chatIdStr}\`\n\nType /help to see available commands.`);
     return;
   }
@@ -218,32 +236,95 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
         leetcodeUsername: session.leetcodeUsername,
         name,
       });
-      await sendTelegramMessage(chatIdStr, `Thanks! Now send your **Email address** for email notifications (or type \`skip\`):`);
+      await sendTelegramMessage(chatIdStr, `Thanks! Now send your **Email address** to receive your 6-digit verification OTP code:`);
       break;
     }
     case "SIGNUP_WAITING_EMAIL": {
-      const email = trimmed.toLowerCase() === "skip" ? undefined : trimmed;
+      const email = trimmed.toLowerCase();
+      if (!email.includes("@")) {
+        await sendTelegramMessage(chatIdStr, `❌ Please enter a valid email address containing '@':`);
+        return;
+      }
+
+      const otpCode = generateOtp();
+      const expiresAt = Date.now() + 10 * 60 * 1000;
+
+      try {
+        await sendEmail(
+          email,
+          `Your LeetCode Notifier Verification Code: ${otpCode}`,
+          `Hello!\n\nYour 6-digit OTP verification code for LeetCode Notifier registration is: ${otpCode}\n\nValid for 10 minutes.`
+        );
+
+        userSessions.set(chatIdStr, {
+          type: "SIGNUP_WAITING_OTP",
+          leetcodeUsername: session.leetcodeUsername,
+          name: session.name,
+          email,
+          otpCode,
+          expiresAt,
+        });
+
+        await sendTelegramMessage(
+          chatIdStr,
+          `📩 **OTP Verification Code Sent!**\n\nWe sent a 6-digit verification OTP code to *${email}*.\n\nPlease reply with the **6-digit OTP code** to complete registration (or type \`resend\` to get a new code):`
+        );
+      } catch (err: any) {
+        await sendTelegramMessage(chatIdStr, `❌ Failed to send OTP email: ${err.message || String(err)}\n\nPlease re-enter your email:`);
+      }
+      break;
+    }
+    case "SIGNUP_WAITING_OTP": {
+      if (trimmed.toLowerCase() === "resend") {
+        const otpCode = generateOtp();
+        const expiresAt = Date.now() + 10 * 60 * 1000;
+        try {
+          await sendEmail(
+            session.email,
+            `Your LeetCode Notifier Verification Code: ${otpCode}`,
+            `Hello!\n\nYour new 6-digit OTP verification code is: ${otpCode}\n\nValid for 10 minutes.`
+          );
+          userSessions.set(chatIdStr, { ...session, otpCode, expiresAt });
+          await sendTelegramMessage(chatIdStr, `🔄 New 6-digit OTP sent to *${session.email}*. Please reply with the code:`);
+        } catch (err: any) {
+          await sendTelegramMessage(chatIdStr, `❌ Failed to resend OTP: ${err.message || String(err)}`);
+        }
+        return;
+      }
+
+      if (Date.now() > session.expiresAt) {
+        await sendTelegramMessage(chatIdStr, `⏰ OTP code expired! Type \`resend\` to get a new code:`);
+        return;
+      }
+
+      if (trimmed !== session.otpCode) {
+        await sendTelegramMessage(chatIdStr, `❌ Invalid OTP code! Please check your email and enter the correct 6-digit code (or type \`resend\`):`);
+        return;
+      }
+
+      // OTP Verified -> Create User Account!
       userSessions.delete(chatIdStr);
 
       const user = await createUser({
         leetcodeUsername: session.leetcodeUsername,
         name: session.name,
-        email: email,
+        email: session.email,
         telegramChatId: chatIdStr,
         channels: {
           telegram: true,
-          email: !!email,
+          email: true,
           push: false,
         },
       });
 
       await sendTelegramMessage(
         chatIdStr,
-        `🎉 **Registration Complete!**\n\n` +
-          `• LeetCode: ${user.leetcodeUsername}\n` +
-          `• Telegram Notifications: ON ✅\n` +
-          `• Email Notifications: ${user.email ? "ON ✅ (" + user.email + ")" : "OFF"}\n\n` +
-          `You'll receive notifications automatically if you miss your deadline today. Type /status anytime!`
+        `🎉 **Registration Complete & Email Verified!**\n\n` +
+          `• LeetCode Handle: *${user.leetcodeUsername}*\n` +
+          `• Name: ${user.name || "(none)"}\n` +
+          `• Email: ${user.email} ✅\n` +
+          `• Telegram Notifications: ON ✅\n\n` +
+          `You'll receive automated 4-stage notifications if you miss your daily LeetCode goal. Type /status anytime!`
       );
       break;
     }
@@ -261,10 +342,54 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
       break;
     }
     case "EDIT_WAITING_EMAIL": {
+      const email = trimmed.toLowerCase();
+      if (!email.includes("@")) {
+        await sendTelegramMessage(chatIdStr, `❌ Please enter a valid email address containing '@':`);
+        return;
+      }
+
+      const otpCode = generateOtp();
+      const expiresAt = Date.now() + 10 * 60 * 1000;
+
+      try {
+        await sendEmail(
+          email,
+          `Verify Email Change - LeetCode Notifier Code: ${otpCode}`,
+          `Hello!\n\nYour 6-digit verification code to update your LeetCode Notifier email is: ${otpCode}\n\nValid for 10 minutes.`
+        );
+
+        userSessions.set(chatIdStr, {
+          type: "EDIT_WAITING_EMAIL_OTP",
+          userId: session.userId,
+          newEmail: email,
+          otpCode,
+          expiresAt,
+        });
+
+        await sendTelegramMessage(
+          chatIdStr,
+          `📩 We sent a 6-digit OTP verification code to *${email}*.\n\nPlease reply with the **6-digit code** to confirm updating your email:`
+        );
+      } catch (err: any) {
+        await sendTelegramMessage(chatIdStr, `❌ Failed to send OTP email: ${err.message || String(err)}`);
+      }
+      break;
+    }
+    case "EDIT_WAITING_EMAIL_OTP": {
+      if (Date.now() > session.expiresAt) {
+        await sendTelegramMessage(chatIdStr, `⏰ OTP code expired! Please try updating your email again via /edit.`);
+        userSessions.delete(chatIdStr);
+        return;
+      }
+
+      if (trimmed !== session.otpCode) {
+        await sendTelegramMessage(chatIdStr, `❌ Incorrect OTP code! Please reply with the correct 6-digit code sent to *${session.newEmail}*:`);
+        return;
+      }
+
       userSessions.delete(chatIdStr);
-      const email = trimmed.toLowerCase() === "skip" ? undefined : trimmed;
-      await updateUser(session.userId, { email });
-      await sendTelegramMessage(chatIdStr, `✅ Email updated to: *${email || "(cleared)"}*`);
+      await updateUser(session.userId, { email: session.newEmail, channels: { email: true } as any });
+      await sendTelegramMessage(chatIdStr, `✅ Email verified and updated to: *${session.newEmail}*`);
       break;
     }
   }
@@ -286,7 +411,7 @@ async function handleCallbackQuery(cb: NonNullable<TelegramUpdate["callback_quer
     await sendTelegramMessage(chatIdStr, `Please send your new **Name** (or type \`skip\` to clear):`);
   } else if (data === "edit_email") {
     userSessions.set(chatIdStr, { type: "EDIT_WAITING_EMAIL", userId: user.id });
-    await sendTelegramMessage(chatIdStr, `Please send your new **Email** (or type \`skip\` to clear):`);
+    await sendTelegramMessage(chatIdStr, `Please send your new **Email address** (an OTP code will be sent to verify):`);
   } else if (data === "toggle_email") {
     const nextState = !user.channels.email;
     await updateUser(user.id, { channels: { ...user.channels, email: nextState } });

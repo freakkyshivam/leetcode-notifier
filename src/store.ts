@@ -130,9 +130,9 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
   const doc = await UserModel.findOne({ id });
   if (!doc) return null;
 
-  if (updates.name !== undefined) doc.name = updates.name.trim() || undefined;
+  if (updates.name !== undefined) doc.name = updates.name ? updates.name.trim() : undefined;
   if (updates.leetcodeUsername !== undefined) doc.leetcodeUsername = updates.leetcodeUsername.trim();
-  if (updates.email !== undefined) doc.email = updates.email.trim().toLowerCase() || undefined;
+  if (updates.email !== undefined) doc.email = updates.email ? updates.email.trim().toLowerCase() : undefined;
   if (updates.telegramChatId !== undefined) doc.telegramChatId = updates.telegramChatId.trim() || undefined;
   if (updates.channels) {
     doc.channels = { ...doc.channels, ...updates.channels };
