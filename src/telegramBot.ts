@@ -65,11 +65,22 @@ async function sendTelegramMessage(
       const data = (await res.json()) as any;
       return data.result?.message_id;
     }
+
+    // Fallback without Markdown if entities parse failed
+    const resPlain = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, reply_markup: replyMarkup }),
+    });
+    if (resPlain.ok) {
+      const data = (await resPlain.json()) as any;
+      return data.result?.message_id;
+    }
   } catch {}
   return undefined;
 }
 
-/** Replaces/edits the text of an existing temporary loading message with the final response */
+/** Replaces/edits the text of an existing temporary loading message without creating duplicates */
 async function editTelegramMessage(
   chatId: string | number,
   messageId: number | undefined,
@@ -97,10 +108,23 @@ async function editTelegramMessage(
       }),
     });
     if (res.ok) return messageId;
+
+    // Retry editing without Markdown if formatting parsing failed
+    const resPlain = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        text,
+        reply_markup: replyMarkup,
+      }),
+    });
+    if (resPlain.ok) return messageId;
   } catch {}
 
-  // Fallback to sending a new message if editing fails
-  return sendTelegramMessage(chatId, text, replyMarkup);
+  // Never send a duplicate message; return existing messageId
+  return messageId;
 }
 
 /** Sends Telegram's native chat action (e.g. animated "typing..." status indicator in header) */
