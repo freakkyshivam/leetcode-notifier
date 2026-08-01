@@ -46,16 +46,61 @@ const userSessions = new Map<string, SessionState>();
 let offset = 0;
 let polling = false;
 
-async function sendTelegramMessage(chatId: string | number, text: string, replyMarkup?: any): Promise<void> {
+async function sendTelegramMessage(
+  chatId: string | number,
+  text: string,
+  replyMarkup?: any
+): Promise<number | undefined> {
   const botToken = config.telegram.botToken;
-  if (!botToken) return;
+  if (!botToken) return undefined;
 
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-  await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: "Markdown", reply_markup: replyMarkup }),
-  });
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "Markdown", reply_markup: replyMarkup }),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as any;
+      return data.result?.message_id;
+    }
+  } catch {}
+  return undefined;
+}
+
+/** Replaces/edits the text of an existing temporary loading message with the final response */
+async function editTelegramMessage(
+  chatId: string | number,
+  messageId: number | undefined,
+  text: string,
+  replyMarkup?: any
+): Promise<number | undefined> {
+  if (!messageId) {
+    return sendTelegramMessage(chatId, text, replyMarkup);
+  }
+
+  const botToken = config.telegram.botToken;
+  if (!botToken) return undefined;
+
+  const url = `https://api.telegram.org/bot${botToken}/editMessageText`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        text,
+        parse_mode: "Markdown",
+        reply_markup: replyMarkup,
+      }),
+    });
+    if (res.ok) return messageId;
+  } catch {}
+
+  // Fallback to sending a new message if editing fails
+  return sendTelegramMessage(chatId, text, replyMarkup);
 }
 
 /** Sends Telegram's native chat action (e.g. animated "typing..." status indicator in header) */
@@ -70,9 +115,7 @@ async function sendChatAction(chatId: string | number, action: string = "typing"
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chatId, action }),
     });
-  } catch {
-    // Non-critical chat action failure ignore
-  }
+  } catch {}
 }
 
 async function answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
@@ -92,30 +135,29 @@ function generateOtp(): string {
 }
 
 async function handleStartCommand(chatIdStr: string): Promise<void> {
-  await sendChatAction(chatIdStr, "typing");
+  sendChatAction(chatIdStr, "typing");
+  const tempMsgId = await sendTelegramMessage(chatIdStr, "⏳ *Loading session details...*");
+
   const user = await getUserByTelegramChatId(chatIdStr);
   if (user) {
     const text = `Welcome back ${user.name || user.leetcodeUsername}! 👋\n\nYour account is linked with LeetCode handle: *${user.leetcodeUsername}*\n\nAvailable commands:\n/status - Check today's progress\n/done - Mark today solved manually\n/edit - Update your profile\n/channels - Manage notification channels\n/developer - Developer info\n/help - View help`;
-    await sendTelegramMessage(chatIdStr, text);
+    await editTelegramMessage(chatIdStr, tempMsgId, text);
   } else {
     userSessions.set(chatIdStr, { type: "SIGNUP_WAITING_LEETCODE" });
-    await sendTelegramMessage(
-      chatIdStr,
-      `Hello! Let's get you set up for LeetCode reminders. 🎯\n\nPlease reply with your **LeetCode Username** (e.g. \`riya_codes\`):`
-    );
+    const text = `Hello! Let's get you set up for LeetCode reminders. 🎯\n\nPlease reply with your **LeetCode Username** (e.g. \`riya_codes\`):`;
+    await editTelegramMessage(chatIdStr, tempMsgId, text);
   }
 }
 
 async function handleStatusCommand(chatIdStr: string): Promise<void> {
-  await sendChatAction(chatIdStr, "typing");
+  sendChatAction(chatIdStr, "typing");
+  const tempMsgId = await sendTelegramMessage(chatIdStr, "⏳ *Fetching today's LeetCode status & daily progress...*");
+
   const user = await getUserByTelegramChatId(chatIdStr);
   if (!user) {
-    await sendTelegramMessage(chatIdStr, "You are not registered yet! Send /start to sign up.");
+    await editTelegramMessage(chatIdStr, tempMsgId, "You are not registered yet! Send /start to sign up.");
     return;
   }
-
-  // Show active typing status while querying LeetCode GraphQL API
-  await sendChatAction(chatIdStr, "typing");
 
   let solved: boolean | null = null;
   try {
@@ -133,26 +175,30 @@ async function handleStatusCommand(chatIdStr: string): Promise<void> {
     `   Stage 4 (23:45): ${user.status.stage4Sent ? "Sent" : "Pending"}\n` +
     `• Channels: ${Object.entries(user.channels).filter(([,v])=>v).map(([k])=>k).join(", ") || "None"}`;
 
-  await sendTelegramMessage(chatIdStr, text);
+  await editTelegramMessage(chatIdStr, tempMsgId, text);
 }
 
 async function handleDoneCommand(chatIdStr: string): Promise<void> {
-  await sendChatAction(chatIdStr, "typing");
+  sendChatAction(chatIdStr, "typing");
+  const tempMsgId = await sendTelegramMessage(chatIdStr, "⏳ *Updating solve status...*");
+
   const user = await getUserByTelegramChatId(chatIdStr);
   if (!user) {
-    await sendTelegramMessage(chatIdStr, "You are not registered yet! Send /start to sign up.");
+    await editTelegramMessage(chatIdStr, tempMsgId, "You are not registered yet! Send /start to sign up.");
     return;
   }
 
   await markSolvedManually(user.id);
-  await sendTelegramMessage(chatIdStr, "✅ Marked today as solved! Rest easy tonight.");
+  await editTelegramMessage(chatIdStr, tempMsgId, "✅ Marked today as solved! Rest easy tonight.");
 }
 
 async function handleEditCommand(chatIdStr: string): Promise<void> {
-  await sendChatAction(chatIdStr, "typing");
+  sendChatAction(chatIdStr, "typing");
+  const tempMsgId = await sendTelegramMessage(chatIdStr, "⏳ *Loading account profile...*");
+
   const user = await getUserByTelegramChatId(chatIdStr);
   if (!user) {
-    await sendTelegramMessage(chatIdStr, "You are not registered yet! Send /start to sign up.");
+    await editTelegramMessage(chatIdStr, tempMsgId, "You are not registered yet! Send /start to sign up.");
     return;
   }
 
@@ -167,14 +213,16 @@ async function handleEditCommand(chatIdStr: string): Promise<void> {
     ],
   };
 
-  await sendTelegramMessage(chatIdStr, text, replyMarkup);
+  await editTelegramMessage(chatIdStr, tempMsgId, text, replyMarkup);
 }
 
 async function handleChannelsCommand(chatIdStr: string): Promise<void> {
-  await sendChatAction(chatIdStr, "typing");
+  sendChatAction(chatIdStr, "typing");
+  const tempMsgId = await sendTelegramMessage(chatIdStr, "⏳ *Loading channels...*");
+
   const user = await getUserByTelegramChatId(chatIdStr);
   if (!user) {
-    await sendTelegramMessage(chatIdStr, "You are not registered yet! Send /start to sign up.");
+    await editTelegramMessage(chatIdStr, tempMsgId, "You are not registered yet! Send /start to sign up.");
     return;
   }
 
@@ -194,11 +242,13 @@ async function handleChannelsCommand(chatIdStr: string): Promise<void> {
     ],
   };
 
-  await sendTelegramMessage(chatIdStr, text, replyMarkup);
+  await editTelegramMessage(chatIdStr, tempMsgId, text, replyMarkup);
 }
 
 async function handleDeveloperCommand(chatIdStr: string): Promise<void> {
-  await sendChatAction(chatIdStr, "typing");
+  sendChatAction(chatIdStr, "typing");
+  const tempMsgId = await sendTelegramMessage(chatIdStr, "⏳ *Loading developer information...*");
+
   const text = `👨‍💻 **Developer Details & System Info**\n\n` +
     `• Developer: FREAKKY SHIVAM\n` +
     `• Role: Backend Developer\n` +
@@ -210,11 +260,13 @@ async function handleDeveloperCommand(chatIdStr: string): Promise<void> {
     `• FINAL BOSS Web Audio Siren Emergency Alarm\n` +
     `• OTP-Based 6-Digit Email Verification`;
 
-  await sendTelegramMessage(chatIdStr, text);
+  await editTelegramMessage(chatIdStr, tempMsgId, text);
 }
 
 async function handleHelpCommand(chatIdStr: string): Promise<void> {
-  await sendChatAction(chatIdStr, "typing");
+  sendChatAction(chatIdStr, "typing");
+  const tempMsgId = await sendTelegramMessage(chatIdStr, "⏳ *Loading commands list...*");
+
   const text = `🤖 **LeetCode Notifier Bot Commands**\n\n` +
     `/start - Register or restart session\n` +
     `/status - View your solve status & stage notifications\n` +
@@ -224,15 +276,12 @@ async function handleHelpCommand(chatIdStr: string): Promise<void> {
     `/developer - Developer & system info\n` +
     `/help - View this message`;
 
-  await sendTelegramMessage(chatIdStr, text);
+  await editTelegramMessage(chatIdStr, tempMsgId, text);
 }
 
 async function handleMessage(chatId: number, text: string): Promise<void> {
   const chatIdStr = String(chatId);
   const trimmed = text.trim();
-
-  // Send native typing chat action indicator immediately
-  await sendChatAction(chatIdStr, "typing");
 
   // Command handlers
   if (trimmed === "/start") return handleStartCommand(chatIdStr);
@@ -276,7 +325,8 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
         return;
       }
 
-      await sendChatAction(chatIdStr, "typing");
+      sendChatAction(chatIdStr, "typing");
+      const tempMsgId = await sendTelegramMessage(chatIdStr, `⏳ *Generating 6-digit OTP code and sending email to ${email}...*`);
 
       const otpCode = generateOtp();
       const expiresAt = Date.now() + 10 * 60 * 1000;
@@ -297,18 +347,17 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
           expiresAt,
         });
 
-        await sendTelegramMessage(
-          chatIdStr,
-          `📩 **OTP Verification Code Sent!**\n\nWe sent a 6-digit verification OTP code to *${email}*.\n\nPlease reply with the **6-digit OTP code** to complete registration (or type \`resend\` to get a new code):`
-        );
+        const text = `📩 **OTP Verification Code Sent!**\n\nWe sent a 6-digit verification OTP code to *${email}*.\n\nPlease reply with the **6-digit OTP code** to complete registration (or type \`resend\` to get a new code):`;
+        await editTelegramMessage(chatIdStr, tempMsgId, text);
       } catch (err: any) {
-        await sendTelegramMessage(chatIdStr, `❌ Failed to send OTP email: ${err.message || String(err)}\n\nPlease re-enter your email:`);
+        await editTelegramMessage(chatIdStr, tempMsgId, `❌ Failed to send OTP email: ${err.message || String(err)}\n\nPlease re-enter your email:`);
       }
       break;
     }
     case "SIGNUP_WAITING_OTP": {
       if (trimmed.toLowerCase() === "resend") {
-        await sendChatAction(chatIdStr, "typing");
+        sendChatAction(chatIdStr, "typing");
+        const tempMsgId = await sendTelegramMessage(chatIdStr, `⏳ *Resending 6-digit OTP code to ${session.email}...*`);
         const otpCode = generateOtp();
         const expiresAt = Date.now() + 10 * 60 * 1000;
         try {
@@ -318,9 +367,9 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
             `Hello!\n\nYour new 6-digit OTP verification code is: ${otpCode}\n\nValid for 10 minutes.`
           );
           userSessions.set(chatIdStr, { ...session, otpCode, expiresAt });
-          await sendTelegramMessage(chatIdStr, `🔄 New 6-digit OTP sent to *${session.email}*. Please reply with the code:`);
+          await editTelegramMessage(chatIdStr, tempMsgId, `🔄 New 6-digit OTP sent to *${session.email}*. Please reply with the code:`);
         } catch (err: any) {
-          await sendTelegramMessage(chatIdStr, `❌ Failed to resend OTP: ${err.message || String(err)}`);
+          await editTelegramMessage(chatIdStr, tempMsgId, `❌ Failed to resend OTP: ${err.message || String(err)}`);
         }
         return;
       }
@@ -336,6 +385,8 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
       }
 
       // OTP Verified -> Create User Account!
+      sendChatAction(chatIdStr, "typing");
+      const tempMsgId = await sendTelegramMessage(chatIdStr, "⏳ *Verifying OTP and creating your account...*");
       userSessions.delete(chatIdStr);
 
       const user = await createUser({
@@ -350,15 +401,14 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
         },
       });
 
-      await sendTelegramMessage(
-        chatIdStr,
-        `🎉 **Registration Complete & Email Verified!**\n\n` +
-          `• LeetCode Handle: *${user.leetcodeUsername}*\n` +
-          `• Name: ${user.name || "(none)"}\n` +
-          `• Email: ${user.email} ✅\n` +
-          `• Telegram Notifications: ON ✅\n\n` +
-          `You'll receive automated 4-stage notifications if you miss your daily LeetCode goal. Type /status anytime!`
-      );
+      const text = `🎉 **Registration Complete & Email Verified!**\n\n` +
+        `• LeetCode Handle: *${user.leetcodeUsername}*\n` +
+        `• Name: ${user.name || "(none)"}\n` +
+        `• Email: ${user.email} ✅\n` +
+        `• Telegram Notifications: ON ✅\n\n` +
+        `You'll receive automated 4-stage notifications if you miss your daily LeetCode goal. Type /status anytime!`;
+
+      await editTelegramMessage(chatIdStr, tempMsgId, text);
       break;
     }
     case "EDIT_WAITING_LEETCODE": {
@@ -381,7 +431,8 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
         return;
       }
 
-      await sendChatAction(chatIdStr, "typing");
+      sendChatAction(chatIdStr, "typing");
+      const tempMsgId = await sendTelegramMessage(chatIdStr, `⏳ *Sending verification code to ${email}...*`);
 
       const otpCode = generateOtp();
       const expiresAt = Date.now() + 10 * 60 * 1000;
@@ -401,12 +452,10 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
           expiresAt,
         });
 
-        await sendTelegramMessage(
-          chatIdStr,
-          `📩 We sent a 6-digit OTP verification code to *${email}*.\n\nPlease reply with the **6-digit code** to confirm updating your email:`
-        );
+        const text = `📩 We sent a 6-digit OTP verification code to *${email}*.\n\nPlease reply with the **6-digit code** to confirm updating your email:`;
+        await editTelegramMessage(chatIdStr, tempMsgId, text);
       } catch (err: any) {
-        await sendTelegramMessage(chatIdStr, `❌ Failed to send OTP email: ${err.message || String(err)}`);
+        await editTelegramMessage(chatIdStr, tempMsgId, `❌ Failed to send OTP email: ${err.message || String(err)}`);
       }
       break;
     }
@@ -422,9 +471,12 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
         return;
       }
 
+      sendChatAction(chatIdStr, "typing");
+      const tempMsgId = await sendTelegramMessage(chatIdStr, "⏳ *Verifying code and updating email...*");
+
       userSessions.delete(chatIdStr);
       await updateUser(session.userId, { email: session.newEmail, channels: { email: true } as any });
-      await sendTelegramMessage(chatIdStr, `✅ Email verified and updated to: *${session.newEmail}*`);
+      await editTelegramMessage(chatIdStr, tempMsgId, `✅ Email verified and updated to: *${session.newEmail}*`);
       break;
     }
   }
@@ -433,10 +485,10 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
 async function handleCallbackQuery(cb: NonNullable<TelegramUpdate["callback_query"]>): Promise<void> {
   const chatIdStr = String(cb.message?.chat.id);
   const data = cb.data;
+  const cbMessageId = cb.message?.message_id;
 
-  // Immediately answer callback query with a toast notification to stop button spinner
   await answerCallbackQuery(cb.id, "⏳ Processing...");
-  await sendChatAction(chatIdStr, "typing");
+  sendChatAction(chatIdStr, "typing");
 
   const user = await getUserByTelegramChatId(chatIdStr);
   if (!user) return;
@@ -452,12 +504,46 @@ async function handleCallbackQuery(cb: NonNullable<TelegramUpdate["callback_quer
     await sendTelegramMessage(chatIdStr, `Please send your new **Email address** (an OTP code will be sent to verify):`);
   } else if (data === "toggle_email") {
     const nextState = !user.channels.email;
-    await updateUser(user.id, { channels: { ...user.channels, email: nextState } });
-    await handleChannelsCommand(chatIdStr);
+    const updated = await updateUser(user.id, { channels: { ...user.channels, email: nextState } });
+    if (updated) {
+      const text = `🔔 **Manage Channels**\n\nTelegram is active for this chat.\n• Email: ${updated.channels.email ? "ON ✅" : "OFF ❌"}\n• Browser Push: ${updated.channels.push ? "ON ✅" : "OFF ❌"}`;
+      const replyMarkup = {
+        inline_keyboard: [
+          [
+            {
+              text: updated.channels.email ? "Disable Email ❌" : "Enable Email ✅",
+              callback_data: "toggle_email",
+            },
+            {
+              text: updated.channels.push ? "Disable Push ❌" : "Enable Push ✅",
+              callback_data: "toggle_push",
+            },
+          ],
+        ],
+      };
+      await editTelegramMessage(chatIdStr, cbMessageId, text, replyMarkup);
+    }
   } else if (data === "toggle_push") {
     const nextState = !user.channels.push;
-    await updateUser(user.id, { channels: { ...user.channels, push: nextState } });
-    await handleChannelsCommand(chatIdStr);
+    const updated = await updateUser(user.id, { channels: { ...user.channels, push: nextState } });
+    if (updated) {
+      const text = `🔔 **Manage Channels**\n\nTelegram is active for this chat.\n• Email: ${updated.channels.email ? "ON ✅" : "OFF ❌"}\n• Browser Push: ${updated.channels.push ? "ON ✅" : "OFF ❌"}`;
+      const replyMarkup = {
+        inline_keyboard: [
+          [
+            {
+              text: updated.channels.email ? "Disable Email ❌" : "Enable Email ✅",
+              callback_data: "toggle_email",
+            },
+            {
+              text: updated.channels.push ? "Disable Push ❌" : "Enable Push ✅",
+              callback_data: "toggle_push",
+            },
+          ],
+        ],
+      };
+      await editTelegramMessage(chatIdStr, cbMessageId, text, replyMarkup);
+    }
   }
 }
 
