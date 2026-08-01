@@ -274,10 +274,8 @@ async function handleDeveloperCommand(chatIdStr: string): Promise<void> {
   const tempMsgId = await sendTelegramMessage(chatIdStr, "⏳ *Loading developer information...*");
 
   const text = `👨‍💻 **Developer Details & System Info**\n\n` +
-    `• Developer: FREAKKY SHIVAM\n` +
-    `• Role: Backend Developer\n` +
+    `• Developer:  SHIVAM CHAUDHARY\n` +
     `• GitHub: https://github.com/freakkyshivam\n` +
-    `• Repo: https://github.com/freakkyshivam/leetcode-notifier\n\n` +
     `🚀 **System Architecture**:\n` +
     `• Node.js, TypeScript, Express, MongoDB (Mongoose)\n` +
     `• 4-Stage Escalation Reminders (21:00, 22:00, 23:00, 23:45)\n` +
