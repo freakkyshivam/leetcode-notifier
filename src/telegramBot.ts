@@ -58,6 +58,23 @@ async function sendTelegramMessage(chatId: string | number, text: string, replyM
   });
 }
 
+/** Sends Telegram's native chat action (e.g. animated "typing..." status indicator in header) */
+async function sendChatAction(chatId: string | number, action: string = "typing"): Promise<void> {
+  const botToken = config.telegram.botToken;
+  if (!botToken) return;
+
+  const url = `https://api.telegram.org/bot${botToken}/sendChatAction`;
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, action }),
+    });
+  } catch {
+    // Non-critical chat action failure ignore
+  }
+}
+
 async function answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
   const botToken = config.telegram.botToken;
   if (!botToken) return;
@@ -75,6 +92,7 @@ function generateOtp(): string {
 }
 
 async function handleStartCommand(chatIdStr: string): Promise<void> {
+  await sendChatAction(chatIdStr, "typing");
   const user = await getUserByTelegramChatId(chatIdStr);
   if (user) {
     const text = `Welcome back ${user.name || user.leetcodeUsername}! 👋\n\nYour account is linked with LeetCode handle: *${user.leetcodeUsername}*\n\nAvailable commands:\n/status - Check today's progress\n/done - Mark today solved manually\n/edit - Update your profile\n/channels - Manage notification channels\n/developer - Developer info\n/help - View help`;
@@ -89,11 +107,15 @@ async function handleStartCommand(chatIdStr: string): Promise<void> {
 }
 
 async function handleStatusCommand(chatIdStr: string): Promise<void> {
+  await sendChatAction(chatIdStr, "typing");
   const user = await getUserByTelegramChatId(chatIdStr);
   if (!user) {
     await sendTelegramMessage(chatIdStr, "You are not registered yet! Send /start to sign up.");
     return;
   }
+
+  // Show active typing status while querying LeetCode GraphQL API
+  await sendChatAction(chatIdStr, "typing");
 
   let solved: boolean | null = null;
   try {
@@ -115,6 +137,7 @@ async function handleStatusCommand(chatIdStr: string): Promise<void> {
 }
 
 async function handleDoneCommand(chatIdStr: string): Promise<void> {
+  await sendChatAction(chatIdStr, "typing");
   const user = await getUserByTelegramChatId(chatIdStr);
   if (!user) {
     await sendTelegramMessage(chatIdStr, "You are not registered yet! Send /start to sign up.");
@@ -126,6 +149,7 @@ async function handleDoneCommand(chatIdStr: string): Promise<void> {
 }
 
 async function handleEditCommand(chatIdStr: string): Promise<void> {
+  await sendChatAction(chatIdStr, "typing");
   const user = await getUserByTelegramChatId(chatIdStr);
   if (!user) {
     await sendTelegramMessage(chatIdStr, "You are not registered yet! Send /start to sign up.");
@@ -147,6 +171,7 @@ async function handleEditCommand(chatIdStr: string): Promise<void> {
 }
 
 async function handleChannelsCommand(chatIdStr: string): Promise<void> {
+  await sendChatAction(chatIdStr, "typing");
   const user = await getUserByTelegramChatId(chatIdStr);
   if (!user) {
     await sendTelegramMessage(chatIdStr, "You are not registered yet! Send /start to sign up.");
@@ -173,6 +198,7 @@ async function handleChannelsCommand(chatIdStr: string): Promise<void> {
 }
 
 async function handleDeveloperCommand(chatIdStr: string): Promise<void> {
+  await sendChatAction(chatIdStr, "typing");
   const text = `👨‍💻 **Developer Details & System Info**\n\n` +
     `• Developer: FREAKKY SHIVAM\n` +
     `• Role: Backend Developer\n` +
@@ -188,6 +214,7 @@ async function handleDeveloperCommand(chatIdStr: string): Promise<void> {
 }
 
 async function handleHelpCommand(chatIdStr: string): Promise<void> {
+  await sendChatAction(chatIdStr, "typing");
   const text = `🤖 **LeetCode Notifier Bot Commands**\n\n` +
     `/start - Register or restart session\n` +
     `/status - View your solve status & stage notifications\n` +
@@ -203,6 +230,9 @@ async function handleHelpCommand(chatIdStr: string): Promise<void> {
 async function handleMessage(chatId: number, text: string): Promise<void> {
   const chatIdStr = String(chatId);
   const trimmed = text.trim();
+
+  // Send native typing chat action indicator immediately
+  await sendChatAction(chatIdStr, "typing");
 
   // Command handlers
   if (trimmed === "/start") return handleStartCommand(chatIdStr);
@@ -246,6 +276,8 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
         return;
       }
 
+      await sendChatAction(chatIdStr, "typing");
+
       const otpCode = generateOtp();
       const expiresAt = Date.now() + 10 * 60 * 1000;
 
@@ -276,6 +308,7 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
     }
     case "SIGNUP_WAITING_OTP": {
       if (trimmed.toLowerCase() === "resend") {
+        await sendChatAction(chatIdStr, "typing");
         const otpCode = generateOtp();
         const expiresAt = Date.now() + 10 * 60 * 1000;
         try {
@@ -348,6 +381,8 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
         return;
       }
 
+      await sendChatAction(chatIdStr, "typing");
+
       const otpCode = generateOtp();
       const expiresAt = Date.now() + 10 * 60 * 1000;
 
@@ -398,7 +433,10 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
 async function handleCallbackQuery(cb: NonNullable<TelegramUpdate["callback_query"]>): Promise<void> {
   const chatIdStr = String(cb.message?.chat.id);
   const data = cb.data;
-  await answerCallbackQuery(cb.id);
+
+  // Immediately answer callback query with a toast notification to stop button spinner
+  await answerCallbackQuery(cb.id, "⏳ Processing...");
+  await sendChatAction(chatIdStr, "typing");
 
   const user = await getUserByTelegramChatId(chatIdStr);
   if (!user) return;
